@@ -79,12 +79,7 @@ public interface Async<A> {
    * an `Async<B>` that's defined in terms of `self.run`.
    */
   default <B> Async<B> map(Function<A, B> f) {
-    return create(
-        (executor, cb) -> {
-          CompletableFuture<B> futureB = toFuture(executor).thenApply(f);
-           fromFuture(()-> futureB).run(executor, cb);
-        }
-    );
+    return (executor, cb) -> run(executor, value -> cb.onSuccess(f.apply(value)));
   }
 
   /**
