@@ -106,9 +106,7 @@ public interface Async<A> {
    * an `Async<B>` that's defined in terms of `self.run`.
    */
   default <B> Async<B> flatMap(Function<A, Async<B>> f) {
-    return create(
-        (executor, cb) -> f.apply(toFuture(executor).join()).run(executor, cb)
-    );
+    return (executor, cb) -> run(executor, value -> f.apply(value).run(executor, cb));
   }
 
   /**
@@ -138,16 +136,14 @@ public interface Async<A> {
    * @param f is the function used to transform the final result
    */
   static <A, B, C> Async<C> parMap2(Async<A> fa, Async<B> fb, BiFunction<A, B, C> f) {
-    return create(
-        (executor, cb) -> {
-          CompletableFuture<A> af = fa.toFuture(executor);
-          CompletableFuture<B> bf = fb.toFuture(executor);
-          CompletableFuture<C> cf = CompletableFuture.allOf(af, bf).thenApply(
-              unused -> f.apply(af.join(), bf.join())
-          );
-          fromFuture(() -> cf).run(executor, cb);
-        }
-    );
+    return (executor, cb) -> {
+      CompletableFuture<A> af = fa.toFuture(executor);
+      CompletableFuture<B> bf = fb.toFuture(executor);
+      CompletableFuture<C> cf = CompletableFuture.allOf(af, bf).thenApply(
+          unused -> f.apply(af.join(), bf.join())
+      );
+      fromFuture(() -> cf).run(executor, cb);
+    };
   }
 
   /**
@@ -164,12 +160,8 @@ public interface Async<A> {
    * Any implementation is accepted, as long as it works.
    */
   static <A> Async<List<A>> sequence(List<Async<A>> list) {
-    return create(
-        (executor, cb) -> {
-
-
-        }
-    );
+    return (ex, cb) -> {
+    };
   }
 
   /**
@@ -186,19 +178,17 @@ public interface Async<A> {
    * Any implementation is accepted, as long as it works.
    */
   static <A> Async<List<A>> parallel(List<Async<A>> list) {
-    return create(
-        (executor, cb) -> {
-          List<CompletableFuture<A>> collect = list.stream()
-              .map(aAsync -> aAsync.toFuture(executor))
-              .collect(toList());
-          CompletableFuture<List<A>> listCompletableFuture = CompletableFuture.allOf(
-              collect.toArray(new CompletableFuture[0])
-          ).thenApply(
-              unused -> collect.stream().map(CompletableFuture::join).collect(toList())
-          );
-          fromFuture(()-> listCompletableFuture).run(executor, cb);
-        }
-    );
+    return (executor, cb) -> {
+      List<CompletableFuture<A>> collect = list.stream()
+          .map(aAsync -> aAsync.toFuture(executor))
+          .collect(toList());
+      CompletableFuture<List<A>> listCompletableFuture = CompletableFuture.allOf(
+          collect.toArray(new CompletableFuture[0])
+      ).thenApply(
+          unused -> collect.stream().map(CompletableFuture::join).collect(toList())
+      );
+      fromFuture(() -> listCompletableFuture).run(executor, cb);
+    };
   }
 
   /**
