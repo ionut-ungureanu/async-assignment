@@ -3,6 +3,7 @@ package org.alexn.async;
 import static java.util.stream.Collectors.toList;
 
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
@@ -79,7 +80,12 @@ public interface Async<A> {
    * an `Async<B>` that's defined in terms of `self.run`.
    */
   default <B> Async<B> map(Function<A, B> f) {
-    return (executor, cb) -> run(executor, value -> cb.onSuccess(f.apply(value)));
+    return (ex, cb) ->
+        ex.execute(
+            () -> run(
+                ex,
+                Callback.async(ex, a -> cb.onSuccess(f.apply(a)))
+            ));
   }
 
   /**
@@ -106,7 +112,13 @@ public interface Async<A> {
    * an `Async<B>` that's defined in terms of `self.run`.
    */
   default <B> Async<B> flatMap(Function<A, Async<B>> f) {
-    return (executor, cb) -> run(executor, value -> f.apply(value).run(executor, cb));
+    return (ex, cb) ->
+        ex.execute(
+            () -> run(
+                ex,
+                Callback.async(ex, value -> f.apply(value).run(ex, cb))
+            )
+        );
   }
 
   /**
@@ -160,8 +172,21 @@ public interface Async<A> {
    * Any implementation is accepted, as long as it works.
    */
   static <A> Async<List<A>> sequence(List<Async<A>> list) {
-    return (ex, cb) -> {
-    };
+     Async<List<A>> acc = Async.eval(ArrayList::new);
+      return list.stream()
+          .reduce(
+              acc,
+              (listAsync, aAsync) -> listAsync.flatMap(
+                  as -> aAsync.flatMap(
+                      a -> (executor, cb1) -> {
+                        as.add(a);
+                        cb1.onSuccess(as);
+                      }
+                  )
+              ),
+              (listAsync, listAsync2) -> listAsync
+          );
+
   }
 
   /**
