@@ -1,9 +1,16 @@
 package org.alexn.async;
 
+import static java.util.stream.Collectors.toList;
+
+
+import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
-import java.util.function.*;
+import java.util.function.BiConsumer;
+import java.util.function.BiFunction;
+import java.util.function.Function;
+import java.util.function.Supplier;
 
 /**
  * The `Async` data type is a lazy `Future`, i.e. a way to describe
@@ -44,8 +51,9 @@ public interface Async<A> {
    * (defined above).
    */
   default CompletableFuture<A> toFuture(Executor executor) {
-    // TODO
-    throw new UnsupportedOperationException("Please implement!");
+    CompletableFuture<A> comp = new CompletableFuture<>();
+    run(executor, comp::complete);
+    return comp;
   }
 
   /**
@@ -72,8 +80,12 @@ public interface Async<A> {
    * an `Async<B>` that's defined in terms of `self.run`.
    */
   default <B> Async<B> map(Function<A, B> f) {
-    // TODO
-    throw new UnsupportedOperationException("Please implement!");
+    return (ex, cb) ->
+        ex.execute(
+            () -> run(
+                ex,
+                Callback.async(ex, a -> cb.onSuccess(f.apply(a)))
+            ));
   }
 
   /**
@@ -100,8 +112,13 @@ public interface Async<A> {
    * an `Async<B>` that's defined in terms of `self.run`.
    */
   default <B> Async<B> flatMap(Function<A, Async<B>> f) {
-    // TODO
-    throw new UnsupportedOperationException("Please implement!");
+    return (ex, cb) ->
+        ex.execute(
+            () -> run(
+                ex,
+                Callback.async(ex, value -> f.apply(value).run(ex, cb))
+            )
+        );
   }
 
   /**
@@ -131,8 +148,14 @@ public interface Async<A> {
    * @param f is the function used to transform the final result
    */
   static <A, B, C> Async<C> parMap2(Async<A> fa, Async<B> fb, BiFunction<A, B, C> f) {
-    // TODO
-    throw new UnsupportedOperationException("Please implement!");
+    return (executor, cb) -> {
+      CompletableFuture<A> af = fa.toFuture(executor);
+      CompletableFuture<B> bf = fb.toFuture(executor);
+      CompletableFuture<C> cf = CompletableFuture.allOf(af, bf).thenApply(
+          unused -> f.apply(af.join(), bf.join())
+      );
+      fromFuture(() -> cf).run(executor, cb);
+    };
   }
 
   /**
@@ -149,8 +172,21 @@ public interface Async<A> {
    * Any implementation is accepted, as long as it works.
    */
   static <A> Async<List<A>> sequence(List<Async<A>> list) {
-    // TODO
-    throw new UnsupportedOperationException("Please implement!");
+     Async<List<A>> acc = Async.eval(ArrayList::new);
+      return list.stream()
+          .reduce(
+              acc,
+              (listAsync, aAsync) -> listAsync.flatMap(
+                  as -> aAsync.flatMap(
+                      a -> (executor, cb1) -> {
+                        as.add(a);
+                        cb1.onSuccess(as);
+                      }
+                  )
+              ),
+              (listAsync, listAsync2) -> listAsync
+          );
+
   }
 
   /**
@@ -167,8 +203,17 @@ public interface Async<A> {
    * Any implementation is accepted, as long as it works.
    */
   static <A> Async<List<A>> parallel(List<Async<A>> list) {
-    // TODO
-    throw new UnsupportedOperationException("Please implement!");
+    return (executor, cb) -> {
+      List<CompletableFuture<A>> collect = list.stream()
+          .map(aAsync -> aAsync.toFuture(executor))
+          .collect(toList());
+      CompletableFuture<List<A>> listCompletableFuture = CompletableFuture.allOf(
+          collect.toArray(new CompletableFuture[0])
+      ).thenApply(
+          unused -> collect.stream().map(CompletableFuture::join).collect(toList())
+      );
+      fromFuture(() -> listCompletableFuture).run(executor, cb);
+    };
   }
 
   /**
@@ -222,6 +267,18 @@ public interface Async<A> {
    * See {@link Async#eval(Supplier)} for inspiration
    */
   static <A> Async<A> fromFuture(Supplier<CompletableFuture<A>> f) {
-    throw new UnsupportedOperationException("Please implement!");
+    return create(
+        (a, cb) -> {
+          boolean streamError = true;
+          try {
+            A value = f.get().join();
+            streamError = false;
+            cb.onSuccess(value);
+          } catch (Exception e) {
+            if (streamError) cb.onError(e);
+            else throw e;
+          }
+        }
+    );
   }
 }

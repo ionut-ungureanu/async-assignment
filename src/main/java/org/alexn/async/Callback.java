@@ -1,5 +1,6 @@
 package org.alexn.async;
 
+import java.util.concurrent.Executor;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 @FunctionalInterface
@@ -36,4 +37,9 @@ public interface Callback<A> {
       }
     };
   }
+
+  static <A> Callback<A> async(Executor ex, Callback<A> cb) {
+    return a -> ex.execute(() -> Callback.safe(cb).onSuccess(a));
+  }
+
 }
